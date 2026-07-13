@@ -101,9 +101,9 @@ extern "C" int rpp_hal_flip(int src_type,
             return CV_HAL_ERROR_NOT_IMPLEMENTED;
         }
 
-        RppStatus status = rppt_flip(d_src, &srcDesc, d_dst, &dstDesc,
+        RppStatus status = rppt_flip_gpu(d_src, &srcDesc, d_dst, &dstDesc,
                                      &horizontal, &vertical,
-                                     &roi, XYWH, handle, backend);
+                                     &roi, XYWH, handle);
 
         bool ok = (status == RPP_SUCCESS);
         if (ok) {
@@ -117,10 +117,10 @@ extern "C" int rpp_hal_flip(int src_type,
     rppHandle_t handle = createRppCpuHandle(1);
     if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
-    RppStatus status = rppt_flip(const_cast<uchar*>(src_data), &srcDesc,
+    RppStatus status = rppt_flip_host(const_cast<uchar*>(src_data), &srcDesc,
                                  dst_data, &dstDesc,
                                  &horizontal, &vertical,
-                                 &roi, XYWH, handle, backend);
+                                 &roi, XYWH, handle);
     destroyRppCpuHandle(handle);
     return (status == RPP_SUCCESS) ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
 }
@@ -172,9 +172,9 @@ extern "C" int rpp_hal_resize(int src_type,
             return CV_HAL_ERROR_NOT_IMPLEMENTED;
         }
 
-        RppStatus status = rppt_resize(d_src, &srcDesc, d_dst, &dstDesc,
+        RppStatus status = rppt_resize_gpu(d_src, &srcDesc, d_dst, &dstDesc,
                                        &dstSize, interp,
-                                       &srcRoi, XYWH, handle, backend);
+                                       &srcRoi, XYWH, handle);
 
         bool ok = (status == RPP_SUCCESS);
         if (ok) {
@@ -188,10 +188,10 @@ extern "C" int rpp_hal_resize(int src_type,
     rppHandle_t handle = createRppCpuHandle(1);
     if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
-    RppStatus status = rppt_resize(const_cast<uchar*>(src_data), &srcDesc,
+    RppStatus status = rppt_resize_host(const_cast<uchar*>(src_data), &srcDesc,
                                    dst_data, &dstDesc,
                                    &dstSize, interp,
-                                   &srcRoi, XYWH, handle, backend);
+                                   &srcRoi, XYWH, handle);
     destroyRppCpuHandle(handle);
     return (status == RPP_SUCCESS) ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
 }
@@ -251,9 +251,9 @@ extern "C" int rpp_hal_warpAffine(int src_type,
             return CV_HAL_ERROR_NOT_IMPLEMENTED;
         }
 
-        RppStatus status = rppt_warp_affine(d_src, &srcDesc, d_dst, &dstDesc,
+        RppStatus status = rppt_warp_affine_gpu(d_src, &srcDesc, d_dst, &dstDesc,
                                             static_cast<Rpp32f*>(d_affine),
-                                            interp, &srcRoi, XYWH, handle, backend);
+                                            interp, &srcRoi, XYWH, handle);
 
         bool ok = (status == RPP_SUCCESS);
         if (ok) {
@@ -267,10 +267,10 @@ extern "C" int rpp_hal_warpAffine(int src_type,
     rppHandle_t handle = createRppCpuHandle(1);
     if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
-    RppStatus status = rppt_warp_affine(const_cast<uchar*>(src_data), &srcDesc,
+    RppStatus status = rppt_warp_affine_host(const_cast<uchar*>(src_data), &srcDesc,
                                         dst_data, &dstDesc,
                                         affine, interp,
-                                        &srcRoi, XYWH, handle, backend);
+                                        &srcRoi, XYWH, handle);
     destroyRppCpuHandle(handle);
     return (status == RPP_SUCCESS) ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
 }
@@ -325,8 +325,8 @@ extern "C" int rpp_hal_boxFilter(const uchar* src_data, size_t src_step,
             return CV_HAL_ERROR_NOT_IMPLEMENTED;
         }
 
-        RppStatus status = rppt_box_filter(d_src, &srcDesc, d_dst, &dstDesc,
-                                           kernelSize, border, &roi, XYWH, handle, backend);
+        RppStatus status = rppt_box_filter_gpu(d_src, &srcDesc, d_dst, &dstDesc,
+                                           kernelSize, border, &roi, XYWH, handle);
 
         bool ok = (status == RPP_SUCCESS);
         if (ok) {
@@ -340,9 +340,9 @@ extern "C" int rpp_hal_boxFilter(const uchar* src_data, size_t src_step,
     rppHandle_t handle = createRppCpuHandle(1);
     if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
-    RppStatus status = rppt_box_filter(const_cast<uchar*>(src_data), &srcDesc,
+    RppStatus status = rppt_box_filter_host(const_cast<uchar*>(src_data), &srcDesc,
                                        dst_data, &dstDesc,
-                                       kernelSize, border, &roi, XYWH, handle, backend);
+                                       kernelSize, border, &roi, XYWH, handle);
     destroyRppCpuHandle(handle);
     return (status == RPP_SUCCESS) ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
 }

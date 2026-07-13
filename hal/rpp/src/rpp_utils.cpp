@@ -200,7 +200,7 @@ bool isRppGpuAvailable() {
             roi.xywhROI.xy.x = 0; roi.xywhROI.xy.y = 0;
             roi.xywhROI.roiWidth = 1; roi.xywhROI.roiHeight = 1;
 
-            (void)rppt_bitwise_and(d_a, d_b, &desc, d_d, &desc, &roi, XYWH, handle, RPP_HIP_BACKEND);
+            (void)rppt_bitwise_and_gpu(d_a, d_b, &desc, d_d, &desc, &roi, XYWH, handle);
             (void)hipDeviceSynchronize();
             hipError_t last = hipGetLastError();
             usable = (last == hipSuccess);

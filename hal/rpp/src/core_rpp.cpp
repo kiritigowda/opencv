@@ -47,28 +47,28 @@ namespace {
                               void* src1, void* src2, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_and(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
+        return (rppt_bitwise_and_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseOr(RppBackend backend,
                              void* src1, void* src2, RpptDescPtr desc,
                              void* dst, RpptROIPtr roi,
                              rppHandle_t handle) {
-        return (rppt_bitwise_or(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
+        return (rppt_bitwise_or_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseXor(RppBackend backend,
                               void* src1, void* src2, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_xor(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
+        return (rppt_bitwise_xor_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseNot(RppBackend backend,
                               void* src, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_not(src, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
+        return (rppt_bitwise_not_gpu(src, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
     }
 }
 
