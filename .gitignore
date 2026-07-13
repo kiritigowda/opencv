@@ -28,8 +28,7 @@ xcuserdata/
 
 # Local RPP HAL test binaries
 /test_rpp_hal
-/test_minimal_run
-/test_imgproc_correctness
+/test_rpp_correctness
 /benchmark_rpp
 /benchmark_rpp_full
 /benchmark_rpp_native

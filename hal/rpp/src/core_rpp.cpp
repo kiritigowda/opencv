@@ -38,6 +38,10 @@ namespace {
         if (disable && (strcmp(disable, "1") == 0 || strcmp(disable, "yes") == 0 || strcmp(disable, "true") == 0)) {
             return RPP_NONE;
         }
+        const char* forceCpu = getenv("OPENCV_RPP_FORCE_CPU");
+        if (forceCpu && (strcmp(forceCpu, "1") == 0 || strcmp(forceCpu, "yes") == 0 || strcmp(forceCpu, "true") == 0)) {
+            return isRppCpuAvailable() ? RPP_CPU : RPP_NONE;
+        }
         if (isRppGpuAvailable()) return RPP_GPU;
         if (isRppCpuAvailable()) return RPP_CPU;
         return RPP_NONE;
@@ -47,28 +51,28 @@ namespace {
                               void* src1, void* src2, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_and_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
+        return (rppt_bitwise_and(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseOr(RppBackend backend,
                              void* src1, void* src2, RpptDescPtr desc,
                              void* dst, RpptROIPtr roi,
                              rppHandle_t handle) {
-        return (rppt_bitwise_or_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
+        return (rppt_bitwise_or(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseXor(RppBackend backend,
                               void* src1, void* src2, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_xor_gpu(src1, src2, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
+        return (rppt_bitwise_xor(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
     }
 
     inline bool runBitwiseNot(RppBackend backend,
                               void* src, RpptDescPtr desc,
                               void* dst, RpptROIPtr roi,
                               rppHandle_t handle) {
-        return (rppt_bitwise_not_gpu(src, desc, dst, desc, roi, XYWH, handle) == RPP_SUCCESS);
+        return (rppt_bitwise_not(src, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
     }
 }
 

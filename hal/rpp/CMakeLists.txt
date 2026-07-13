@@ -22,20 +22,20 @@ target_include_directories(rpphal PRIVATE
   ${CMAKE_SOURCE_DIR}/modules/imgproc/include
 )
 
-# RPP 3.x (HIP backend) already pulls HIP through rpp::rpp when exported properly.
-# The hardcoded amdhip64 path was for an older ROCm layout; keep it as a fallback
-# only if the target is not otherwise present.
 target_link_libraries(rpphal PUBLIC rpp::rpp)
-if(NOT TARGET hip::host AND EXISTS "/opt/rocm/lib/libamdhip64.so")
-  target_link_libraries(rpphal PUBLIC /opt/rocm/lib/libamdhip64.so)
-elseif(NOT TARGET hip::host)
-  find_package(hip REQUIRED CONFIG HINTS ${ROCM_PATH}/lib/cmake/hip)
-  target_link_libraries(rpphal PUBLIC hip::host)
-endif()
 
-# Define GPU_SUPPORT so RPP exposes GPU APIs.
-# Define __HIP_PLATFORM_AMD__ so HIP headers work in plain C++ mode.
-target_compile_definitions(rpphal PUBLIC GPU_SUPPORT=1 __HIP_PLATFORM_AMD__=1 RPP_BACKEND_HIP=1)
+# RPP 3.x unified API exposes both CPU (HOST) and GPU (HIP) backends from the
+# same library when built with BACKEND=HIP. Only in that case do we need HIP
+# headers/runtime and the RPP_BACKEND_HIP compile definition.
+if(rpp_BACKEND_TYPE STREQUAL "HIP")
+  if(NOT TARGET hip::host AND EXISTS "/opt/rocm/lib/libamdhip64.so")
+    target_link_libraries(rpphal PUBLIC /opt/rocm/lib/libamdhip64.so)
+  elseif(NOT TARGET hip::host)
+    find_package(hip REQUIRED CONFIG HINTS ${ROCM_PATH}/lib/cmake/hip)
+    target_link_libraries(rpphal PUBLIC hip::host)
+  endif()
+  target_compile_definitions(rpphal PUBLIC GPU_SUPPORT=1 __HIP_PLATFORM_AMD__=1 RPP_BACKEND_HIP=1)
+endif()
 
 set_target_properties(rpphal PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${3P_LIBRARY_OUTPUT_PATH} DEBUG_POSTFIX "${OPENCV_DEBUG_POSTFIX}")
 

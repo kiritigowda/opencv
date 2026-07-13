@@ -2,12 +2,14 @@
  * Benchmark RPP HAL backend vs OpenCV native for core/imgproc operations.
  *
  * Modes:
- *   Native:  run with OPENCV_RPP_DISABLE=1 (if supported) or by linking a
- *            build without the RPP HAL. For convenience we compare against
- *            the RPP path that returns NOT_IMPLEMENTED for everything except
- *            bitwise; that is effectively native for imgproc.
- *   RPP CPU: default path on this system.
- *   RPP HIP: OPENCV_RPP_FORCE_GPU=1.
+ *   Native:  OPENCV_RPP_DISABLE=1 (RPP HAL returns NOT_IMPLEMENTED for
+ *            everything; OpenCV native runs all kernels).
+ *   RPP CPU: OPENCV_RPP_FORCE_CPU=1. Note: resize and warpAffine currently
+ *            fall back to native OpenCV on the RPP CPU path because RPP's
+ *            HOST backend produces large output deviations in ROCm/rpp
+ *            develop. Other kernels (flip, boxFilter, bitwise) run through
+ *            RPP HOST.
+ *   RPP HIP: default path when a GPU is available (or OPENCV_RPP_FORCE_GPU=1).
  */
 
 #include <opencv2/core.hpp>
