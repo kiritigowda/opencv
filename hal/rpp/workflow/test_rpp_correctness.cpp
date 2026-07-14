@@ -133,6 +133,49 @@ int main() {
         test("flip horizontal 8UC3", rppOut, nativeOut, CV_8U, 0);
     }
 
+    // GaussianBlur 3x3 (isotropic, REPLICATE). RPP's gaussian coefficients differ
+    // slightly from OpenCV's, so allow a modest tolerance.
+    {
+        Mat rppOut, nativeOut;
+        GaussianBlur(color8u, rppOut, Size(3,3), 0, 0, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        GaussianBlur(color8u, nativeOut, Size(3,3), 0, 0, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("gaussianBlur 3x3 8UC3", rppOut, nativeOut, CV_8U, 16);
+    }
+
+    // medianBlur 3x3
+    {
+        Mat rppOut, nativeOut;
+        medianBlur(color8u, rppOut, 3);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        medianBlur(color8u, nativeOut, 3);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("medianBlur 3x3 8UC3", rppOut, nativeOut, CV_8U, 2);
+    }
+
+    // Sobel dx=1,dy=0, 3x3, single channel, REPLICATE (RPP writes same dtype 8U).
+    {
+        Mat rppOut, nativeOut;
+        Sobel(gray8u, rppOut, CV_8U, 1, 0, 3, 1, 0, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        Sobel(gray8u, nativeOut, CV_8U, 1, 0, 3, 1, 0, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("sobel dx 3x3 8UC1", rppOut, nativeOut, CV_8U, 24);
+    }
+
+    // warpPerspective 8UC3
+    {
+        double Mp[9] = {1.0, 0.05, 10.0, 0.02, 1.0, 20.0, 0.0001, 0.0002, 1.0};
+        Mat Mmat(3, 3, CV_64FC1, Mp);
+        Mat rppOut, nativeOut;
+        warpPerspective(color8u, rppOut, Mmat, color8u.size(), INTER_LINEAR, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        warpPerspective(color8u, nativeOut, Mmat, color8u.size(), INTER_LINEAR, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("warpPerspective 8UC3", rppOut, nativeOut, CV_8U, 3);
+    }
+
     cout << "=== Done ===" << endl;
     return 0;
 }

@@ -22,14 +22,33 @@ RPP kernel today:
 | warpAffine (8U/32F) | **GPU only** | CPU path disabled — RPP HOST warp deviates |
 | flip | GPU + CPU | correctness verified |
 | boxFilter (square kernel, REPLICATE, 8U/32F, cn 1/3) | GPU + CPU | correctness verified |
+| gaussianBlur (square, isotropic, REPLICATE, cn 1/3) | GPU + CPU | Phase 1 — correctness verified (tol 16; RPP coeffs differ) |
+| medianBlur (square kernel, cn 1/3) | GPU + CPU | Phase 1 — correctness verified |
+| sobel (cn 1, ksize 3/5/7, scale 1/delta 0, REPLICATE) | GPU + CPU | Phase 1 — correctness verified (tol 24) |
+| warpPerspective (8U/32F) | **GPU only** | Phase 1 — correctness verified |
+
+### Phase 1 benchmark (RX 7900 XT, RPP GPU vs native AVX)
+| op | HD native | HD RPP | 4K native | 4K RPP | verdict |
+|----|-----------|--------|-----------|--------|---------|
+| gaussianBlur 3x3 | 0.100 | 0.093 | 0.570 | 0.589 | **tie** |
+| medianBlur 3x3 | 0.422 | 0.437 | 2.539 | 2.482 | **tie** |
+| sobel 3x3 | 0.095 | 0.107 | 0.298 | 0.313 | **tie** |
+| warpPerspective | 0.906 | 0.919 | 4.045 | 4.087 | **tie** |
+
+ms/op. All four tie native (±~2%) — no op *loses*, so all stay enabled (guard-fallback
+policy only disables ops that lose at all sizes; the Phase 0 min-size guard still routes
+tiny images to native). No single-op GPU win yet — confirms the standing conclusion that
+the real payoff needs op-*chaining* (data resident on device across ops), not one-shot HAL
+calls that pay a PCIe round-trip each.
 
 Everything else in `core_rpp.cpp` (add, sub, mul, div, addWeighted, cvt*, abs, cmp,
 minMaxIdx, countNonZero, dotProduct, meanStdDev, integral, cvtColor, LUT, magnitude)
 and in `imgproc_rpp.cpp` (gaussianBlur, medianBlur, warpPerspective, sobel, canny,
 cvtColor*) is a **stub returning `CV_HAL_ERROR_NOT_IMPLEMENTED`**.
 
-**So the real working set = 8 ops, mostly GPU-only.** This roadmap turns the 50 mappable
-ops into real, optimized implementations.
+**Baseline real working set was 8 ops** (bitwise x4, resize, warpAffine, flip, boxFilter).
+Phase 1 added 4 more real ops (gaussianBlur, medianBlur, sobel, warpPerspective) → **12
+working**. This roadmap turns the remaining mappable ops into real implementations.
 
 ### Why it isn't fast yet
 Every current call does: `hipMalloc → hipMemcpy H2D (row loop) → rppCreate handle →
