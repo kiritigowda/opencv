@@ -278,27 +278,46 @@ RpptDataType cvDepthToRppDataType(int cvDepth) {
 // Memory helpers for GPU path
 // =========================================================================
 
+size_t rawImageBytes(int w, int h, int depth, int cn) {
+    const size_t elemSize = static_cast<size_t>(CV_ELEM_SIZE1(depth));
+    return static_cast<size_t>(w) * static_cast<size_t>(cn) * elemSize * static_cast<size_t>(h);
+}
+
 #ifdef RPP_BACKEND_HIP
+
+void* allocHipBuffer(size_t totalBytes) {
+    void* devPtr = DeviceBufferPool::instance().acquire(totalBytes);
+    if (!devPtr) {
+        if (!checkHip(hipMalloc(&devPtr, totalBytes)) || devPtr == nullptr) {
+            return nullptr;
+        }
+    }
+    return devPtr;
+}
 
 bool uploadRawToHip(const void* host_ptr, size_t step, int w, int h, int depth, int cn, void** out_dev_ptr) {
     const size_t elemSize = static_cast<size_t>(CV_ELEM_SIZE1(depth));
     const size_t rowBytes = static_cast<size_t>(w) * static_cast<size_t>(cn) * elemSize;
-    size_t totalBytes = rowBytes * h;
+    const size_t totalBytes = rowBytes * static_cast<size_t>(h);
 
-    // Try pool first.
-    void* devPtr = DeviceBufferPool::instance().acquire(totalBytes);
-    if (!devPtr) {
-        if (!checkHip(hipMalloc(&devPtr, totalBytes)) || devPtr == nullptr) {
-            return false;
-        }
-    }
+    void* devPtr = allocHipBuffer(totalBytes);
+    if (!devPtr) return false;
 
     const uchar* src = static_cast<const uchar*>(host_ptr);
     uchar* dst = static_cast<uchar*>(devPtr);
-    for (int row = 0; row < h; ++row) {
-        if (!checkHip(hipMemcpy(dst + row * rowBytes, src + row * step, rowBytes, hipMemcpyHostToDevice))) {
+
+    // Fast path: host rows are contiguous, copy the whole image in one shot.
+    if (step == rowBytes) {
+        if (!checkHip(hipMemcpy(dst, src, totalBytes, hipMemcpyHostToDevice))) {
             DeviceBufferPool::instance().release(devPtr, totalBytes);
             return false;
+        }
+    } else {
+        for (int row = 0; row < h; ++row) {
+            if (!checkHip(hipMemcpy(dst + row * rowBytes, src + row * step, rowBytes, hipMemcpyHostToDevice))) {
+                DeviceBufferPool::instance().release(devPtr, totalBytes);
+                return false;
+            }
         }
     }
 
@@ -312,6 +331,10 @@ bool downloadRawFromHip(void* dev_ptr, void* host_ptr, size_t step, int w, int h
 
     uchar* dst = static_cast<uchar*>(host_ptr);
     uchar* src = static_cast<uchar*>(dev_ptr);
+
+    if (step == rowBytes) {
+        return checkHip(hipMemcpy(dst, src, rowBytes * static_cast<size_t>(h), hipMemcpyDeviceToHost));
+    }
     for (int row = 0; row < h; ++row) {
         if (!checkHip(hipMemcpy(dst + row * step, src + row * rowBytes, rowBytes, hipMemcpyDeviceToHost))) {
             return false;
@@ -320,16 +343,15 @@ bool downloadRawFromHip(void* dev_ptr, void* host_ptr, size_t step, int w, int h
     return true;
 }
 
-void freeHipPtr(void* devPtr) {
+void freeHipPtr(void* devPtr, size_t bytes) {
     if (devPtr) {
-        // We don't know the original size here; release with zero and the
-        // pool will still accept it. In a fully optimized version the caller
-        // would pass the size.
-        DeviceBufferPool::instance().release(devPtr, 0);
+        DeviceBufferPool::instance().release(devPtr, bytes);
     }
 }
 
 #else // !RPP_BACKEND_HIP
+
+void* allocHipBuffer(size_t) { return nullptr; }
 
 bool uploadRawToHip(const void*, size_t, int, int, int, int, void**) {
     return false;
@@ -339,7 +361,7 @@ bool downloadRawFromHip(void*, void*, size_t, int, int, int, int) {
     return false;
 }
 
-void freeHipPtr(void*) {}
+void freeHipPtr(void*, size_t) {}
 
 #endif // RPP_BACKEND_HIP
 

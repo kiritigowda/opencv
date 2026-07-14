@@ -8,308 +8,81 @@
  */
 
 #include "rpp_hal_core.hpp"
-#include "rpp_hal_utils.hpp"
+#include "rpp_precomp.hpp"
 #include <rpp/rppt_tensor_bitwise_operations.h>
 
 using namespace cv::hal::rpp;
 
-// =========================================================================
-// Dispatch helpers
-// =========================================================================
-
 namespace {
 
-#ifdef RPP_BACKEND_HIP
-    inline void clearStickyHipError() {
-        // RPP 3.x HIP backend sometimes leaves a spurious asynchronous
-        // "illegal memory access" error in the HIP context even though the
-        // kernel produced the correct result. Discard it so the next RPP
-        // operation on a fresh handle can initialize successfully.
-        (void)hipGetLastError();
-    }
-#else
-    inline void clearStickyHipError() {}
-#endif
-
-    enum RppPath { RPP_NONE, RPP_GPU, RPP_CPU };
-
-    inline RppPath selectRppPath() {
-        const char* disable = getenv("OPENCV_RPP_DISABLE");
-        if (disable && (strcmp(disable, "1") == 0 || strcmp(disable, "yes") == 0 || strcmp(disable, "true") == 0)) {
-            return RPP_NONE;
-        }
-        const char* forceCpu = getenv("OPENCV_RPP_FORCE_CPU");
-        if (forceCpu && (strcmp(forceCpu, "1") == 0 || strcmp(forceCpu, "yes") == 0 || strcmp(forceCpu, "true") == 0)) {
-            return isRppCpuAvailable() ? RPP_CPU : RPP_NONE;
-        }
-        if (isRppGpuAvailable()) return RPP_GPU;
-        if (isRppCpuAvailable()) return RPP_CPU;
-        return RPP_NONE;
-    }
-
-    inline bool runBitwiseAnd(RppBackend backend,
-                              void* src1, void* src2, RpptDescPtr desc,
-                              void* dst, RpptROIPtr roi,
-                              rppHandle_t handle) {
-        return (rppt_bitwise_and(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
-    }
-
-    inline bool runBitwiseOr(RppBackend backend,
-                             void* src1, void* src2, RpptDescPtr desc,
-                             void* dst, RpptROIPtr roi,
-                             rppHandle_t handle) {
-        return (rppt_bitwise_or(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
-    }
-
-    inline bool runBitwiseXor(RppBackend backend,
-                              void* src1, void* src2, RpptDescPtr desc,
-                              void* dst, RpptROIPtr roi,
-                              rppHandle_t handle) {
-        return (rppt_bitwise_xor(src1, src2, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
-    }
-
-    inline bool runBitwiseNot(RppBackend backend,
-                              void* src, RpptDescPtr desc,
-                              void* dst, RpptROIPtr roi,
-                              rppHandle_t handle) {
-        return (rppt_bitwise_not(src, desc, dst, desc, roi, XYWH, handle, backend) == RPP_SUCCESS);
-    }
+// Build a full-image single-channel 8U descriptor + ROI (shared by bitwise ops).
+inline void buildBitwise(RpptDesc& desc, RpptROI& roi, int width, int height) {
+    buildRppDescNHWC(desc, width, height, 1, CV_8U);
+    buildFullRoi(roi, width, height);
 }
 
+inline RppBuf buf8u1(const void* p, size_t step, int w, int h) {
+    return RppBuf{ p, step, w, h, CV_8U, 1 };
+}
+
+} // namespace
+
 // =========================================================================
-// BITWISE AND
+// BITWISE (and / or / xor / not) — via runRpp executor
 // =========================================================================
 
 extern "C" int rpp_hal_and8u(const uchar* src1_data, size_t src1_step,
                   const uchar* src2_data, size_t src2_step,
                   uchar* dst_data, size_t dst_step,
                   int width, int height) {
-    RppPath path = selectRppPath();
-    if (path == RPP_NONE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    RpptDesc desc;
-    buildRppDescNHWC(desc, width, height, 1, CV_8U);
-    RpptROI roi;
-    buildFullRoi(roi, width, height);
-
-    RppBackend backend = (path == RPP_GPU) ? RPP_HIP_BACKEND : RPP_HOST_BACKEND;
-
-    if (path == RPP_GPU) {
-        void* d_src1 = nullptr;
-        void* d_src2 = nullptr;
-        void* d_dst  = nullptr;
-
-        bool ok = uploadRawToHip(src1_data, src1_step, width, height, CV_8U, 1, &d_src1) &&
-                  uploadRawToHip(src2_data, src2_step, width, height, CV_8U, 1, &d_src2) &&
-                  uploadRawToHip(dst_data, dst_step, width, height, CV_8U, 1, &d_dst);
-        if (!ok) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        rppHandle_t handle = createRppGpuHandle(1);
-        if (!handle) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        bool callOk = runBitwiseAnd(backend, d_src1, d_src2, &desc, d_dst, &roi, handle);
-        clearStickyHipError();
-        if (callOk) {
-            callOk = downloadRawFromHip(d_dst, dst_data, dst_step, width, height, CV_8U, 1);
-        }
-
-        destroyRppGpuHandle(handle);
-        freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-        return callOk ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    }
-
-    rppHandle_t handle = createRppCpuHandle(1);
-    if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    int status = runBitwiseAnd(backend,
-                               const_cast<uchar*>(src1_data),
-                               const_cast<uchar*>(src2_data),
-                               &desc, dst_data, &roi, handle)
-                     ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    destroyRppCpuHandle(handle);
-    return status;
+    RpptDesc desc; RpptROI roi; buildBitwise(desc, roi, width, height);
+    RppBuf srcs[2] = { buf8u1(src1_data, src1_step, width, height),
+                       buf8u1(src2_data, src2_step, width, height) };
+    RppBuf dst = buf8u1(dst_data, dst_step, width, height);
+    return runRpp(srcs, 2, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_bitwise_and(s[0], s[1], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
-
-// =========================================================================
-// BITWISE OR
-// =========================================================================
 
 extern "C" int rpp_hal_or8u(const uchar* src1_data, size_t src1_step,
                  const uchar* src2_data, size_t src2_step,
                  uchar* dst_data, size_t dst_step,
                  int width, int height) {
-    RppPath path = selectRppPath();
-    if (path == RPP_NONE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    RpptDesc desc;
-    buildRppDescNHWC(desc, width, height, 1, CV_8U);
-    RpptROI roi;
-    buildFullRoi(roi, width, height);
-
-    RppBackend backend = (path == RPP_GPU) ? RPP_HIP_BACKEND : RPP_HOST_BACKEND;
-
-    if (path == RPP_GPU) {
-        void* d_src1 = nullptr;
-        void* d_src2 = nullptr;
-        void* d_dst  = nullptr;
-
-        bool ok = uploadRawToHip(src1_data, src1_step, width, height, CV_8U, 1, &d_src1) &&
-                  uploadRawToHip(src2_data, src2_step, width, height, CV_8U, 1, &d_src2) &&
-                  uploadRawToHip(dst_data, dst_step, width, height, CV_8U, 1, &d_dst);
-        if (!ok) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        rppHandle_t handle = createRppGpuHandle(1);
-        if (!handle) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        bool callOk = runBitwiseOr(backend, d_src1, d_src2, &desc, d_dst, &roi, handle);
-        clearStickyHipError();
-        if (callOk) {
-            callOk = downloadRawFromHip(d_dst, dst_data, dst_step, width, height, CV_8U, 1);
-        }
-
-        destroyRppGpuHandle(handle);
-        freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-        return callOk ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    }
-
-    rppHandle_t handle = createRppCpuHandle(1);
-    if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    int status = runBitwiseOr(backend,
-                              const_cast<uchar*>(src1_data),
-                              const_cast<uchar*>(src2_data),
-                              &desc, dst_data, &roi, handle)
-                     ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    destroyRppCpuHandle(handle);
-    return status;
+    RpptDesc desc; RpptROI roi; buildBitwise(desc, roi, width, height);
+    RppBuf srcs[2] = { buf8u1(src1_data, src1_step, width, height),
+                       buf8u1(src2_data, src2_step, width, height) };
+    RppBuf dst = buf8u1(dst_data, dst_step, width, height);
+    return runRpp(srcs, 2, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_bitwise_or(s[0], s[1], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
-
-// =========================================================================
-// BITWISE XOR
-// =========================================================================
 
 extern "C" int rpp_hal_xor8u(const uchar* src1_data, size_t src1_step,
                   const uchar* src2_data, size_t src2_step,
                   uchar* dst_data, size_t dst_step,
                   int width, int height) {
-    RppPath path = selectRppPath();
-    if (path == RPP_NONE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    RpptDesc desc;
-    buildRppDescNHWC(desc, width, height, 1, CV_8U);
-    RpptROI roi;
-    buildFullRoi(roi, width, height);
-
-    RppBackend backend = (path == RPP_GPU) ? RPP_HIP_BACKEND : RPP_HOST_BACKEND;
-
-    if (path == RPP_GPU) {
-        void* d_src1 = nullptr;
-        void* d_src2 = nullptr;
-        void* d_dst  = nullptr;
-
-        bool ok = uploadRawToHip(src1_data, src1_step, width, height, CV_8U, 1, &d_src1) &&
-                  uploadRawToHip(src2_data, src2_step, width, height, CV_8U, 1, &d_src2) &&
-                  uploadRawToHip(dst_data, dst_step, width, height, CV_8U, 1, &d_dst);
-        if (!ok) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        rppHandle_t handle = createRppGpuHandle(1);
-        if (!handle) {
-            freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        bool callOk = runBitwiseXor(backend, d_src1, d_src2, &desc, d_dst, &roi, handle);
-        clearStickyHipError();
-        if (callOk) {
-            callOk = downloadRawFromHip(d_dst, dst_data, dst_step, width, height, CV_8U, 1);
-        }
-
-        destroyRppGpuHandle(handle);
-        freeHipPtr(d_src1); freeHipPtr(d_src2); freeHipPtr(d_dst);
-        return callOk ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    }
-
-    rppHandle_t handle = createRppCpuHandle(1);
-    if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    int status = runBitwiseXor(backend,
-                               const_cast<uchar*>(src1_data),
-                               const_cast<uchar*>(src2_data),
-                               &desc, dst_data, &roi, handle)
-                     ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    destroyRppCpuHandle(handle);
-    return status;
+    RpptDesc desc; RpptROI roi; buildBitwise(desc, roi, width, height);
+    RppBuf srcs[2] = { buf8u1(src1_data, src1_step, width, height),
+                       buf8u1(src2_data, src2_step, width, height) };
+    RppBuf dst = buf8u1(dst_data, dst_step, width, height);
+    return runRpp(srcs, 2, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_bitwise_xor(s[0], s[1], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
-
-// =========================================================================
-// BITWISE NOT
-// =========================================================================
 
 extern "C" int rpp_hal_not8u(const uchar* src_data, size_t src_step,
                   uchar* dst_data, size_t dst_step,
                   int width, int height) {
-    RppPath path = selectRppPath();
-    if (path == RPP_NONE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    RpptDesc desc;
-    buildRppDescNHWC(desc, width, height, 1, CV_8U);
-    RpptROI roi;
-    buildFullRoi(roi, width, height);
-
-    RppBackend backend = (path == RPP_GPU) ? RPP_HIP_BACKEND : RPP_HOST_BACKEND;
-
-    if (path == RPP_GPU) {
-        void* d_src = nullptr;
-        void* d_dst = nullptr;
-
-        bool ok = uploadRawToHip(src_data, src_step, width, height, CV_8U, 1, &d_src) &&
-                  uploadRawToHip(dst_data, dst_step, width, height, CV_8U, 1, &d_dst);
-        if (!ok) {
-            freeHipPtr(d_src); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        rppHandle_t handle = createRppGpuHandle(1);
-        if (!handle) {
-            freeHipPtr(d_src); freeHipPtr(d_dst);
-            return CV_HAL_ERROR_NOT_IMPLEMENTED;
-        }
-
-        bool callOk = runBitwiseNot(backend, d_src, &desc, d_dst, &roi, handle);
-        clearStickyHipError();
-        if (callOk) {
-            callOk = downloadRawFromHip(d_dst, dst_data, dst_step, width, height, CV_8U, 1);
-        }
-
-        destroyRppGpuHandle(handle);
-        freeHipPtr(d_src); freeHipPtr(d_dst);
-        return callOk ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    }
-
-    rppHandle_t handle = createRppCpuHandle(1);
-    if (!handle) return CV_HAL_ERROR_NOT_IMPLEMENTED;
-
-    int status = runBitwiseNot(backend,
-                               const_cast<uchar*>(src_data),
-                               &desc, dst_data, &roi, handle)
-                     ? CV_HAL_ERROR_OK : CV_HAL_ERROR_NOT_IMPLEMENTED;
-    destroyRppCpuHandle(handle);
-    return status;
+    RpptDesc desc; RpptROI roi; buildBitwise(desc, roi, width, height);
+    RppBuf srcs[1] = { buf8u1(src_data, src_step, width, height) };
+    RppBuf dst = buf8u1(dst_data, dst_step, width, height);
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_bitwise_not(s[0], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
 
 // =========================================================================

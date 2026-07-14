@@ -49,20 +49,31 @@ RpptDataType cvDepthToRppDataType(int cvDepth);
 // Memory helpers for GPU path
 // ---------------------------------------------------------------------------
 
-/** Allocate contiguous device buffer and copy from OpenCV mat (row-by-row).
- *  If pool is enabled, a cached buffer may be reused.
+/** Allocate contiguous device buffer and copy from OpenCV mat.
+ *  Uses a single hipMemcpy when the host rows are contiguous (step == rowBytes),
+ *  otherwise copies row-by-row. If pool is enabled, a cached buffer may be reused.
  */
 bool uploadRawToHip(const void* host_ptr, size_t step, int w, int h, int depth, int cn, void** out_dev_ptr);
 
-/** Copy from contiguous device buffer back to OpenCV mat (row-by-row).
- *  The device pointer is returned to a pool for reuse unless the pool is disabled.
+/** Allocate a contiguous device buffer of exactly totalBytes without copying.
+ *  Intended for output buffers, which do not need their prior contents uploaded.
+ *  Returns nullptr on failure.
+ */
+void* allocHipBuffer(size_t totalBytes);
+
+/** Copy from contiguous device buffer back to OpenCV mat.
+ *  Uses a single hipMemcpy when the host rows are contiguous, else row-by-row.
  */
 bool downloadRawFromHip(void* dev_ptr, void* host_ptr, size_t step, int w, int h, int depth, int cn);
 
-/** Free a HIP device pointer obtained from uploadRawToHip.
- *  When pooling is on this returns the buffer to the pool.
+/** Number of contiguous bytes for a w*h*cn image of the given depth. */
+size_t rawImageBytes(int w, int h, int depth, int cn);
+
+/** Free a HIP device pointer obtained from uploadRawToHip / allocHipBuffer.
+ *  When pooling is on this returns the buffer to the pool. Passing the exact
+ *  byte size lets the pool re-bin the buffer correctly; size 0 means unknown.
  */
-void freeHipPtr(void* devPtr);
+void freeHipPtr(void* devPtr, size_t bytes = 0);
 
 /** Release all pooled HIP buffers and disable pooling. Call at process exit. */
 void releaseHipPool();

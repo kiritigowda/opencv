@@ -8,10 +8,11 @@ set(RPP_HAL_HEADERS
   "${CMAKE_CURRENT_SOURCE_DIR}/include/rpp_hal_imgproc.hpp"
   CACHE INTERNAL "")
 
-find_package(rpp REQUIRED)
+find_package(rpp 3.1.0 REQUIRED)
 
 add_library(rpphal STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/rpp_utils.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/rpp_executor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core_rpp.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/imgproc_rpp.cpp"
 )
