@@ -26,9 +26,9 @@ node_modules
 CMakeSettings.json
 xcuserdata/
 
-# Local RPP HAL test binaries
-/test_rpp_hal
-/test_rpp_correctness
-/benchmark_rpp
-/benchmark_rpp_full
-/benchmark_rpp_native
+# Local RPP HAL test/benchmark binaries (built by hal/rpp/workflow/build.sh)
+/hal/rpp/workflow/test_rpp_hal
+/hal/rpp/workflow/test_rpp_correctness
+/hal/rpp/workflow/benchmark_rpp
+/hal/rpp/workflow/benchmark_rpp_full
+/hal/rpp/workflow/benchmark_rpp_native
