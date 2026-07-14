@@ -124,6 +124,16 @@ int rpp_hal_abs32f(const float* src_data, size_t src_step,
                    float* dst_data, size_t dst_step,
                    int width, int height);
 
+// inRange (single-channel 8u / 32f -> 255/0 mask)
+int rpp_hal_inRange8u(const uchar* src_data, size_t src_step,
+                      uchar* dst_data, size_t dst_step, int dst_depth,
+                      int width, int height, int cn,
+                      uchar lower_bound, uchar upper_bound);
+int rpp_hal_inRange32f(const uchar* src_data, size_t src_step,
+                       uchar* dst_data, size_t dst_step, int dst_depth,
+                       int width, int height, int cn,
+                       double lower_bound, double upper_bound);
+
 // Compare
 int rpp_hal_cmp8u(const uchar* src1_data, size_t src1_step,
                   const uchar* src2_data, size_t src2_step,
@@ -254,6 +264,11 @@ int rpp_hal_magnitude64f(const double* x_data, const double* y_data,
 #define cv_hal_xor8u rpp_hal_xor8u
 #undef cv_hal_not8u
 #define cv_hal_not8u rpp_hal_not8u
+
+#undef cv_hal_inRange8u
+#define cv_hal_inRange8u rpp_hal_inRange8u
+#undef cv_hal_inRange32f
+#define cv_hal_inRange32f rpp_hal_inRange32f
 
 #undef cv_hal_add8u
 #define cv_hal_add8u rpp_hal_add8u

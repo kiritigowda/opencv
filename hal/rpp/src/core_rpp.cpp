@@ -10,6 +10,7 @@
 #include "rpp_hal_core.hpp"
 #include "rpp_precomp.hpp"
 #include <rpp/rppt_tensor_bitwise_operations.h>
+#include <rpp/rppt_tensor_statistical_operations.h>
 
 using namespace cv::hal::rpp;
 
@@ -83,6 +84,59 @@ extern "C" int rpp_hal_not8u(const uchar* src_data, size_t src_step,
         [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
             return rppt_bitwise_not(s[0], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
         });
+}
+
+// =========================================================================
+// inRange — RPP threshold outputs a 255/0 in-range binary mask, which matches
+// OpenCV inRange for single-channel input. (Multi-channel inRange ANDs the
+// per-channel results into one mask; RPP thresholds each channel separately,
+// so we only claim the cn==1 case and let native handle the rest.)
+// =========================================================================
+
+namespace {
+
+inline int runInRange(const uchar* src_data, size_t src_step,
+                      uchar* dst_data, size_t dst_step, int dst_depth,
+                      int width, int height, int cn, int depth,
+                      float lo, float hi) {
+    if (cn != 1) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (dst_depth != CV_8U) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (depth != CV_8U && depth != CV_32F) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    // RPP HOST threshold deviates (like resize/warp); GPU path only.
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, 1, depth);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, width, height, 1, depth);
+    RpptROI roi; buildFullRoi(roi, width, height);
+    Rpp32f minT = lo, maxT = hi;
+
+    RppBuf srcs[1] = { RppBuf{ src_data, src_step, width, height, depth, 1 } };
+    RppBuf dst = RppBuf{ dst_data, dst_step, width, height, depth, 1 };
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_threshold(s[0], &srcDesc, d, &dstDesc, &minT, &maxT,
+                                  &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
+}
+
+} // namespace
+
+extern "C" int rpp_hal_inRange8u(const uchar* src_data, size_t src_step,
+                                 uchar* dst_data, size_t dst_step, int dst_depth,
+                                 int width, int height, int cn,
+                                 uchar lower_bound, uchar upper_bound) {
+    return runInRange(src_data, src_step, dst_data, dst_step, dst_depth,
+                      width, height, cn, CV_8U,
+                      static_cast<float>(lower_bound), static_cast<float>(upper_bound));
+}
+
+extern "C" int rpp_hal_inRange32f(const uchar* src_data, size_t src_step,
+                                  uchar* dst_data, size_t dst_step, int dst_depth,
+                                  int width, int height, int cn,
+                                  double lower_bound, double upper_bound) {
+    return runInRange(src_data, src_step, dst_data, dst_step, dst_depth,
+                      width, height, cn, CV_32F,
+                      static_cast<float>(lower_bound), static_cast<float>(upper_bound));
 }
 
 // =========================================================================

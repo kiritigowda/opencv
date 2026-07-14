@@ -26,6 +26,21 @@ RPP kernel today:
 | medianBlur (square kernel, cn 1/3) | GPU + CPU | Phase 1 — correctness verified |
 | sobel (cn 1, ksize 3/5/7, scale 1/delta 0, REPLICATE) | GPU + CPU | Phase 1 — correctness verified (tol 24) |
 | warpPerspective (8U/32F) | **GPU only** | Phase 1 — correctness verified |
+| erode (full box kernel 3/5/7/9, REPLICATE, cn 1/3) | GPU + CPU | Phase 2 — correctness exact (tol 0) |
+| dilate (full box kernel 3/5/7/9, REPLICATE, cn 1/3) | GPU + CPU | Phase 2 — correctness exact (tol 0) |
+| inRange (single-channel 8u/32f) | **GPU only** | Phase 2 — via rppt_threshold; RPP HOST deviates so GPU-guarded |
+| remap (32f maps, NEAREST/BILINEAR, REPLICATE) | **GPU only** | Phase 2 — correctness verified |
+
+### Phase 2 benchmark (RX 7900 XT, RPP GPU vs native AVX)
+| op | HD native | HD RPP | 4K native | 4K RPP | verdict |
+|----|-----------|--------|-----------|--------|---------|
+| erode 3x3 | 0.186 | 0.192 | 0.599 | 0.614 | **tie** |
+| dilate 3x3 | 0.180 | 0.191 | 0.605 | 0.620 | **tie** |
+| inRange 1c | 0.068 | 0.081 | 0.264 | 0.272 | **tie** |
+| remap 3c | 0.686 | 0.715 | 2.158 | 2.183 | **tie** |
+
+ms/op. Same story as Phase 1 — all tie native (±~3%), none lose, all stay enabled. Still
+single-op copy-bound; op-chaining remains the path to an actual GPU win.
 
 ### Phase 1 benchmark (RX 7900 XT, RPP GPU vs native AVX)
 | op | HD native | HD RPP | 4K native | 4K RPP | verdict |
@@ -47,8 +62,9 @@ and in `imgproc_rpp.cpp` (gaussianBlur, medianBlur, warpPerspective, sobel, cann
 cvtColor*) is a **stub returning `CV_HAL_ERROR_NOT_IMPLEMENTED`**.
 
 **Baseline real working set was 8 ops** (bitwise x4, resize, warpAffine, flip, boxFilter).
-Phase 1 added 4 more real ops (gaussianBlur, medianBlur, sobel, warpPerspective) → **12
-working**. This roadmap turns the remaining mappable ops into real implementations.
+Phase 1 added 4 (gaussianBlur, medianBlur, sobel, warpPerspective) → 12. Phase 2 added 4
+(erode, dilate, inRange, remap) → **16 working**. This roadmap turns the remaining mappable
+ops into real implementations.
 
 ### Why it isn't fast yet
 Every current call does: `hipMalloc → hipMemcpy H2D (row loop) → rppCreate handle →

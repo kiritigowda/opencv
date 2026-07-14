@@ -11,6 +11,8 @@
 #include "rpp_precomp.hpp"
 #include <rpp/rppt_tensor_geometric_augmentations.h>
 #include <rpp/rppt_tensor_filter_augmentations.h>
+#include <rpp/rppt_tensor_morphological_operations.h>
+#include <opencv2/imgproc/hal/interface.h>
 
 using namespace cv::hal::rpp;
 
@@ -404,4 +406,146 @@ extern "C" int rpp_hal_cvtHSVtoBGR(const uchar* src_data, size_t src_step,
     (void)width; (void)height; (void)depth; (void)dcn; (void)swapBlue;
     (void)isFullRange; (void)isHSV;
     return CV_HAL_ERROR_NOT_IMPLEMENTED;
+}
+
+// =========================================================================
+// MORPHOLOGY (erode / dilate) — RPP supports only a full square box kernel
+// =========================================================================
+
+extern "C" int rpp_hal_morph_stateless(int operation,
+                                       const uchar* src_data, size_t src_step, int src_type,
+                                       uchar* dst_data, size_t dst_step, int dst_type,
+                                       int width, int height,
+                                       int src_full_width, int src_full_height, int src_roi_x, int src_roi_y,
+                                       int dst_full_width, int dst_full_height, int dst_roi_x, int dst_roi_y,
+                                       const uchar* kernel_data, size_t kernel_step, int kernel_type,
+                                       int kernel_width, int kernel_height, int anchor_x, int anchor_y,
+                                       int borderType, const double borderValue[4],
+                                       int iterations, bool allowSubmatrix, bool allowInplace) {
+    (void)borderValue; (void)allowInplace;
+
+    // RPP erode/dilate: square odd kernel (3/5/7/9), centered anchor, single
+    // iteration, full-frame (no ROI/submatrix), and an all-ones structuring
+    // element (RPP has no arbitrary kernel). Bail on anything else.
+    if (operation != CV_HAL_MORPH_ERODE && operation != CV_HAL_MORPH_DILATE)
+        return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (src_type != dst_type) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (iterations != 1) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (allowSubmatrix) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (borderType != cv::BORDER_REPLICATE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (kernel_width != kernel_height) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (kernel_width != 3 && kernel_width != 5 && kernel_width != 7 && kernel_width != 9)
+        return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (anchor_x != kernel_width / 2 || anchor_y != kernel_height / 2)
+        return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    // Full-frame only: ROI must cover the whole allocation.
+    if (src_roi_x != 0 || src_roi_y != 0 || dst_roi_x != 0 || dst_roi_y != 0 ||
+        src_full_width != width || src_full_height != height ||
+        dst_full_width != width || dst_full_height != height)
+        return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    int cn = CV_MAT_CN(src_type);
+    int depth = CV_MAT_DEPTH(src_type);
+    if (!supportedDepth(depth)) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (cn != 1 && cn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    // Structuring element must be all non-zero (a plain box). An empty Mat()
+    // kernel is passed by OpenCV as a 3x3 all-ones; a custom kernel with any
+    // zero would change semantics, so require every element non-zero.
+    if (kernel_data && kernel_type == CV_8U) {
+        for (int y = 0; y < kernel_height; ++y) {
+            const uchar* krow = kernel_data + static_cast<size_t>(y) * kernel_step;
+            for (int x = 0; x < kernel_width; ++x)
+                if (krow[x] == 0) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+        }
+    }
+
+    const Rpp32u kernelSize = static_cast<Rpp32u>(kernel_width);
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, cn, depth);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, width, height, cn, depth);
+    RpptROI roi; buildFullRoi(roi, width, height);
+
+    RppBuf srcs[1] = { makeBuf(src_data, src_step, width, height, depth, cn) };
+    RppBuf dst = makeBuf(dst_data, dst_step, width, height, depth, cn);
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            if (operation == CV_HAL_MORPH_ERODE)
+                return rppt_erode(s[0], &srcDesc, d, &dstDesc, kernelSize, &roi, XYWH, h, be) == RPP_SUCCESS;
+            return rppt_dilate(s[0], &srcDesc, d, &dstDesc, kernelSize, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
+}
+
+// =========================================================================
+// REMAP (floating-point maps) — rppt_remap, NEAREST / BILINEAR only
+// =========================================================================
+
+extern "C" int rpp_hal_remap32f(int src_type,
+                                const uchar* src_data, size_t src_step,
+                                int src_width, int src_height,
+                                uchar* dst_data, size_t dst_step,
+                                int dst_width, int dst_height,
+                                float* mapx, size_t mapx_step,
+                                float* mapy, size_t mapy_step,
+                                int interpolation, int border_type,
+                                const double border_value[4]) {
+    (void)border_value;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    int cn = CV_MAT_CN(src_type);
+    int depth = CV_MAT_DEPTH(src_type);
+    if (!supportedDepth(depth)) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (cn != 1 && cn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (border_type != cv::BORDER_REPLICATE) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    RpptInterpolationType interp;
+    if (interpolation == CV_HAL_INTER_NEAREST) interp = NEAREST_NEIGHBOR;
+    else if (interpolation == CV_HAL_INTER_LINEAR) interp = BILINEAR;
+    else return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    // RPP remap tables are sized to the *destination* grid; OpenCV maps are too.
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, src_width, src_height, cn, depth);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, dst_width, dst_height, cn, depth);
+    RpptDesc tableDesc; buildRppDescNHWC(tableDesc, dst_width, dst_height, 1, CV_32F);
+    RpptROI srcRoi; buildFullRoi(srcRoi, src_width, src_height);
+
+    RppBuf srcs[1] = { makeBuf(src_data, src_step, src_width, src_height, depth, cn) };
+    RppBuf dst = makeBuf(dst_data, dst_step, dst_width, dst_height, depth, cn);
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) -> bool {
+            Rpp32f* rowTable = mapy;   // rows  = y coordinates
+            Rpp32f* colTable = mapx;   // cols  = x coordinates
+#ifdef RPP_BACKEND_HIP
+            void* d_row = nullptr; void* d_col = nullptr;
+            if (be == RPP_HIP_BACKEND) {
+                const size_t tblBytes = static_cast<size_t>(dst_width) * dst_height * sizeof(float);
+                if (hipMalloc(&d_row, tblBytes) != hipSuccess ||
+                    hipMalloc(&d_col, tblBytes) != hipSuccess) {
+                    if (d_row) (void)hipFree(d_row); if (d_col) (void)hipFree(d_col);
+                    return false;
+                }
+                // Copy row-by-row to drop any host map step padding.
+                bool ok = true;
+                for (int y = 0; y < dst_height && ok; ++y) {
+                    ok = hipMemcpy(static_cast<uchar*>(d_row) + static_cast<size_t>(y) * dst_width * sizeof(float),
+                                   reinterpret_cast<const uchar*>(mapy) + static_cast<size_t>(y) * mapy_step,
+                                   static_cast<size_t>(dst_width) * sizeof(float), hipMemcpyHostToDevice) == hipSuccess &&
+                         hipMemcpy(static_cast<uchar*>(d_col) + static_cast<size_t>(y) * dst_width * sizeof(float),
+                                   reinterpret_cast<const uchar*>(mapx) + static_cast<size_t>(y) * mapx_step,
+                                   static_cast<size_t>(dst_width) * sizeof(float), hipMemcpyHostToDevice) == hipSuccess;
+                }
+                if (!ok) { (void)hipFree(d_row); (void)hipFree(d_col); return false; }
+                rowTable = static_cast<Rpp32f*>(d_row);
+                colTable = static_cast<Rpp32f*>(d_col);
+            }
+#else
+            (void)mapx_step; (void)mapy_step;
+#endif
+            bool ok = rppt_remap(s[0], &srcDesc, d, &dstDesc, rowTable, colTable, &tableDesc,
+                                 interp, &srcRoi, XYWH, h, be) == RPP_SUCCESS;
+#ifdef RPP_BACKEND_HIP
+            if (d_row) (void)hipFree(d_row);
+            if (d_col) (void)hipFree(d_col);
+#endif
+            return ok;
+        });
 }

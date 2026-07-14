@@ -176,6 +176,54 @@ int main() {
         test("warpPerspective 8UC3", rppOut, nativeOut, CV_8U, 3);
     }
 
+    // erode 3x3 box (default kernel, REPLICATE)
+    {
+        Mat kernel = getStructuringElement(MORPH_RECT, Size(3,3));
+        Mat rppOut, nativeOut;
+        erode(color8u, rppOut, kernel, Point(-1,-1), 1, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        erode(color8u, nativeOut, kernel, Point(-1,-1), 1, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("erode 3x3 8UC3", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // dilate 3x3 box
+    {
+        Mat kernel = getStructuringElement(MORPH_RECT, Size(3,3));
+        Mat rppOut, nativeOut;
+        dilate(color8u, rppOut, kernel, Point(-1,-1), 1, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        dilate(color8u, nativeOut, kernel, Point(-1,-1), 1, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("dilate 3x3 8UC3", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // inRange single channel 8u
+    {
+        Mat rppOut, nativeOut;
+        inRange(gray8u, Scalar(50), Scalar(200), rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        inRange(gray8u, Scalar(50), Scalar(200), nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("inRange 8UC1", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // remap 8UC3 (identity-ish shift map, bilinear, REPLICATE)
+    {
+        Mat mapx(H, W, CV_32FC1), mapy(H, W, CV_32FC1);
+        for (int y = 0; y < H; ++y)
+            for (int x = 0; x < W; ++x) {
+                mapx.at<float>(y,x) = static_cast<float>(min(W-1, x+2));
+                mapy.at<float>(y,x) = static_cast<float>(min(H-1, y+1));
+            }
+        Mat rppOut, nativeOut;
+        remap(color8u, rppOut, mapx, mapy, INTER_LINEAR, BORDER_REPLICATE);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        remap(color8u, nativeOut, mapx, mapy, INTER_LINEAR, BORDER_REPLICATE);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("remap 8UC3 bilinear", rppOut, nativeOut, CV_8U, 3);
+    }
+
     cout << "=== Done ===" << endl;
     return 0;
 }
