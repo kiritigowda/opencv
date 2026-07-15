@@ -1,0 +1,51 @@
+RPP HAL comprehensive benchmark — 1920x1080, 100 iters, 5 warmups
+Host: santiago (AMD Radeon RX 7900 XT GPU + Ryzen 9 7900X CPU), ROCm 7.14, RPP 3.1.2
+OpenCV 5.1.0-dev. Date: 2026-07-15.
+All numbers are ms/op (lower is better).
+
+Configs:
+  native   = OpenCV native AVX (OPENCV_RPP_DISABLE=1), via cv:: API
+  hal-cpu  = RPP HOST backend through the HAL (OPENCV_RPP_FORCE_CPU=1), via cv:: API
+  hal-hip  = RPP HIP  backend through the HAL (default), via cv:: API [includes H<->D copy]
+  rpp-cpu  = direct rppt_* on HOST backend, no OpenCV, upload-once/download-once [pure kernel]
+  rpp-hip  = direct rppt_* on HIP backend — NOT RELIABLY MEASURABLE standalone (see note)
+
+NOTE on rpp-hip (direct): RPP 3.x HIP kernels enqueue on RPP's internal stream
+asynchronously; a standalone harness cannot cleanly time them (hipDeviceSynchronize on
+the default stream returns in ~0.5us before the kernel runs, and several kernels launch-
+error and poison the context). The verified, correct GPU measurement is hal-hip, which
+forces synchronization via its per-call H<->D copies and is proven correct by the test
+suite. Direct rpp-cpu (HOST) IS valid and shown below.
+
+op                      native     hal-cpu    hal-hip    rpp-cpu(pure)
+----------------------------------------------------------------------
+bitwise_and 8UC1        0.0471     0.0912     0.0615     0.0591
+bitwise_or 8UC1         0.0471     0.0840     0.0557     0.0592
+bitwise_xor 8UC1        0.0476     0.0800     0.0563     0.0577
+bitwise_not 8UC1        0.0316     0.0667     0.0405     0.0352
+boxFilter 3x3 8UC3      0.6056     0.6881     0.6053     0.6442
+gaussianBlur 3x3        0.0996     0.0949     0.0951     2.0039
+medianBlur 3x3          0.4647     0.4506     0.4749     0.4415
+sobel dx 3x3 8UC1       0.1034     0.1518     0.1143     ERR
+resize down2x 8UC3      0.0524     0.0751     0.0582     0.6514
+warpAffine 8UC3         0.7620     0.7368     0.7746     10.7799
+warpPerspect 8UC3       0.9347     0.9153     0.9303     10.6918
+flip horiz 8UC3         1.9668     0.5896     1.9775     0.5379
+erode 3x3 8UC3          0.1802     0.2340     0.1922     ERR
+dilate 3x3 8UC3         0.1783     0.2357     0.1987     ERR
+remap 8UC3 bilin        0.7185     0.7011     0.7091     11.2976
+inRange 8UC1            0.0758     0.0884     0.0799     0.0001 (*)
+lut 8UC3                0.1832     0.2068     0.1820     1.6136
+equalizeHist 8UC1       0.2754     0.3050     0.2893     0.0001 (*)
+cvtColor BGR2RGB        0.1311     0.1533     0.1357     0.2498
+addWeighted 32f         0.2100     0.2397     0.2280     0.2314
+sum 8UC1                0.0487     0.0681     0.0564     0.0001 (*)
+meanStdDev 8UC1         0.0433     0.0620     0.0510     0.0002 (*)
+magnitude 32f           0.3488     0.3733     0.3580     0.2623
+
+ERR = rppt_* returned an error on the HOST backend (sobel/erode/dilate are
+      GPU_SUPPORT-only in RPP 3.1.2, so HOST has no implementation).
+(*)  = returned RPP_SUCCESS but in sub-microsecond time, i.e. it did not do real
+      work (these are exactly the ops the HAL guards to GPU-only because the RPP
+      HOST path is unreliable). Treat as "no usable HOST implementation".
+      The trustworthy CPU column is hal-cpu (measured through OpenCV, correctness-verified).

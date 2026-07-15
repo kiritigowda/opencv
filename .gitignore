@@ -38,3 +38,5 @@ xcuserdata/
 /hal/rpp/workflow/bench_phase2
 /hal/rpp/workflow/bench_phase34
 /hal/rpp/workflow/bench_phase56
+/hal/rpp/workflow/bench_all_hal
+/hal/rpp/workflow/bench_all_native_rpp
