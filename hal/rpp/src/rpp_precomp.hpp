@@ -82,6 +82,19 @@ using RppOp = std::function<bool(void** srcDev, int nSrc, void* dstDev,
 // - downloads the output and returns buffers to the device pool.
 int runRpp(const RppBuf* srcs, int nSrc, const RppBuf& dst, const RppOp& op);
 
+// The reduction op callable receives resolved input pointers plus a resolved
+// result pointer (DEVICE memory on GPU, the host resultOut on CPU) that RPP
+// writes its small reduction array into.
+using RppReduceOp = std::function<bool(void** srcDev, int nSrc, void* resultDev,
+                                       rppHandle_t handle, RppBackend backend)>;
+
+// Like runRpp but for reductions (image -> small host array). The executor
+// uploads inputs, provides a device-resident result buffer of resultBytes on
+// the GPU path, runs the op, and copies the result back into resultOut. There
+// is no min-size guard here (reductions read the whole image regardless).
+int runRppReduce(const RppBuf* srcs, int nSrc,
+                 void* resultOut, size_t resultBytes, const RppReduceOp& op);
+
 }}} // namespace cv::hal::rpp
 
 #endif // __RPP_PRECOMP_HPP__

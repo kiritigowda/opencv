@@ -6,6 +6,8 @@
 #include <opencv2/imgproc.hpp>
 #include <iostream>
 #include <cstdlib>
+#include <cmath>
+#include <algorithm>
 
 using namespace cv;
 using namespace std;
@@ -279,6 +281,48 @@ int main() {
         addWeighted(a32, 0.3, b32, 0.7, 0.0, nativeOut);
         unsetenv("OPENCV_RPP_DISABLE");
         test("addWeighted 32f blend", rppOut, nativeOut, CV_32F, 1e-3);
+    }
+
+    // --- scalar-result reductions (relative tolerance) ---
+    auto testScalar = [](const string& name, double rpp, double nat, double relTol) {
+        double denom = std::max(1.0, std::fabs(nat));
+        bool ok = std::fabs(rpp - nat) / denom <= relTol;
+        cout << (ok ? "[PASS] " : "[FAIL] ") << name;
+        if (!ok) cout << " (rpp " << rpp << " vs native " << nat << ")";
+        cout << endl;
+    };
+
+    // sum 8UC1
+    {
+        Scalar r = sum(gray8u);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        Scalar n = sum(gray8u);
+        unsetenv("OPENCV_RPP_DISABLE");
+        testScalar("sum 8UC1", r[0], n[0], 1e-4);
+    }
+
+    // meanStdDev 8UC1
+    {
+        Scalar rm, rs, nm, ns;
+        meanStdDev(gray8u, rm, rs);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        meanStdDev(gray8u, nm, ns);
+        unsetenv("OPENCV_RPP_DISABLE");
+        testScalar("meanStdDev 8UC1 mean", rm[0], nm[0], 1e-3);
+        testScalar("meanStdDev 8UC1 stddev", rs[0], ns[0], 1e-3);
+    }
+
+    // magnitude 32f
+    {
+        Mat x(H, W, CV_32FC1), y(H, W, CV_32FC1);
+        rng.fill(x, RNG::UNIFORM, -10.f, 10.f);
+        rng.fill(y, RNG::UNIFORM, -10.f, 10.f);
+        Mat rppOut, nativeOut;
+        magnitude(x, y, rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        magnitude(x, y, nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("magnitude 32f", rppOut, nativeOut, CV_32F, 1e-2);
     }
 
     cout << "=== Done ===" << endl;

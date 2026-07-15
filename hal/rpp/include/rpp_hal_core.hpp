@@ -193,23 +193,15 @@ int rpp_hal_dotProduct64f(const double* src1_data, size_t src1_step,
                           const double* src2_data, size_t src2_step,
                           int width, int height, double* result);
 
-// meanStdDev
-int rpp_hal_meanStdDev8u(const uchar* src_data, size_t src_step,
-                         int width, int height,
-                         double* meanVal, double* stdDevVal,
-                         uchar* mask, size_t maskStep);
-int rpp_hal_meanStdDev16u(const ushort* src_data, size_t src_step,
-                          int width, int height,
-                          double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep);
-int rpp_hal_meanStdDev32f(const float* src_data, size_t src_step,
-                          int width, int height,
-                          double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep);
-int rpp_hal_meanStdDev64f(const double* src_data, size_t src_step,
-                          int width, int height,
-                          double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep);
+// meanStdDev (matches cv_hal_meanStdDev: depth-dispatched, src_type carries depth+cn)
+int rpp_hal_meanStdDev(const uchar* src_data, size_t src_step,
+                       int width, int height, int src_type,
+                       double* mean_val, double* stddev_val,
+                       uchar* mask, size_t mask_step);
+
+// sum (matches cv_hal_sum)
+int rpp_hal_sum(const uchar* src_data, size_t src_step, int src_type,
+                int width, int height, double* result);
 
 // integral
 int rpp_hal_integral8u(const uchar* src_data, size_t src_step,
@@ -354,14 +346,11 @@ int rpp_hal_magnitude64f(const double* x_data, const double* y_data,
 #undef cv_hal_dotProduct64f
 #define cv_hal_dotProduct64f rpp_hal_dotProduct64f
 
-#undef cv_hal_meanStdDev8u
-#define cv_hal_meanStdDev8u rpp_hal_meanStdDev8u
-#undef cv_hal_meanStdDev16u
-#define cv_hal_meanStdDev16u rpp_hal_meanStdDev16u
-#undef cv_hal_meanStdDev32f
-#define cv_hal_meanStdDev32f rpp_hal_meanStdDev32f
-#undef cv_hal_meanStdDev64f
-#define cv_hal_meanStdDev64f rpp_hal_meanStdDev64f
+#undef cv_hal_meanStdDev
+#define cv_hal_meanStdDev rpp_hal_meanStdDev
+
+#undef cv_hal_sum
+#define cv_hal_sum rpp_hal_sum
 
 #undef cv_hal_integral8u
 #define cv_hal_integral8u rpp_hal_integral8u

@@ -34,6 +34,19 @@ RPP kernel today:
 | equalizeHist (8UC1) | **GPU only** | Phase 3 — via rppt_histogram_equalize |
 | cvtColor BGR<->RGB swap (8/16/32, cn 3) | **GPU only** | Phase 3 — via rppt_channel_permute, exact |
 | addWeighted (32f, beta=1-alpha, gamma=0) | **GPU only** | Phase 4 — via rppt_blend |
+| sum (8U/32f, cn 1/3, no mask) | **GPU only** | Phase 5 — via rppt_tensor_sum (reduction executor) |
+| meanStdDev (8U/32f, cn 1/3, no mask) | **GPU only** | Phase 5 — via rppt_tensor_mean + rppt_tensor_stddev |
+| magnitude (32f) | **GPU only** | Phase 6 — via rppt_magnitude |
+
+### Phase 5/6 benchmark (RX 7900 XT, RPP GPU vs native AVX)
+| op | HD native | HD RPP | 4K native | 4K RPP | verdict |
+|----|-----------|--------|-----------|--------|---------|
+| sum 1c | 0.052 | 0.058 | 0.195 | 0.203 | **tie** |
+| meanStdDev 1c | 0.045 | 0.051 | 0.173 | 0.180 | **tie** |
+| magnitude 32f | 0.346 | 0.357 | 2.386 | 2.414 | **tie** |
+
+ms/op. Reductions and magnitude tie native; all stay enabled. Introduced a second executor
+(`runRppReduce`) for image->small-array reductions. Same copy-bound ceiling holds.
 
 ### Phase 3/4 benchmark (RX 7900 XT, RPP GPU vs native AVX)
 | op | HD native | HD RPP | 4K native | 4K RPP | verdict |
@@ -79,7 +92,8 @@ cvtColor*) is a **stub returning `CV_HAL_ERROR_NOT_IMPLEMENTED`**.
 **Baseline real working set was 8 ops** (bitwise x4, resize, warpAffine, flip, boxFilter).
 Phase 1 added 4 (gaussianBlur, medianBlur, sobel, warpPerspective) → 12. Phase 2 added 4
 (erode, dilate, inRange, remap) → 16. Phase 3/4 added 4 (lut, equalizeHist, cvtColor
-BGR<->RGB swap, addWeighted-as-blend) → **20 working**.
+BGR<->RGB swap, addWeighted-as-blend) → 20. Phase 5/6 added 3 (sum, meanStdDev, magnitude)
+→ **23 working**.
 
 ### Why it isn't fast yet
 Every current call does: `hipMalloc → hipMemcpy H2D (row loop) → rppCreate handle →

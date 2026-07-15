@@ -12,6 +12,7 @@
 #include <rpp/rppt_tensor_bitwise_operations.h>
 #include <rpp/rppt_tensor_statistical_operations.h>
 #include <rpp/rppt_tensor_color_augmentations.h>
+#include <rpp/rppt_tensor_arithmetic_operations.h>
 #include <cmath>
 
 using namespace cv::hal::rpp;
@@ -401,36 +402,96 @@ extern "C" int rpp_hal_dotProduct64f(const double*, size_t,
     return CV_HAL_ERROR_NOT_IMPLEMENTED;
 }
 
-extern "C" int rpp_hal_meanStdDev8u(const uchar* src_data, size_t src_step,
-                         int width, int height, double* meanVal, double* stdDevVal,
-                         uchar* mask, size_t maskStep) {
-    (void)src_data; (void)src_step; (void)width; (void)height;
-    (void)meanVal; (void)stdDevVal; (void)mask; (void)maskStep;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+// RPP mean/stddev/sum reductions write, per image, a channel-wise array:
+//   c==1 -> [value]           (length 1)
+//   c==3 -> [R, G, B, image]  (length 4)
+// mean/stddev outputs are always F32; sum is U64 for U8/I8 input, F32 for F32.
+// OpenCV wants per-channel doubles (length cn) and no image-total. GPU-only,
+// mask must be null (RPP has no masked reduction).
+
+extern "C" int rpp_hal_meanStdDev(const uchar* src_data, size_t src_step,
+                       int width, int height, int src_type,
+                       double* mean_val, double* stddev_val,
+                       uchar* mask, size_t mask_step) {
+    (void)mask_step;
+    if (mask != nullptr) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    const int depth = CV_MAT_DEPTH(src_type);
+    const int cn = CV_MAT_CN(src_type);
+    if (depth != CV_8U && depth != CV_32F) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (cn != 1 && cn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    const int arrLen = (cn == 1) ? 1 : 4;   // RPP layout: [v] or [R,G,B,img]
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, cn, depth);
+    RpptROI roi; buildFullRoi(roi, width, height);
+
+    // F32 scaling: RPP treats F32 pixels in [0,1]; OpenCV F32 data is raw. RPP
+    // mean/stddev of raw F32 still returns raw-scale values, so no rescale.
+    Rpp32f meanArr[4] = {0,0,0,0};
+    Rpp32f stddevArr[4] = {0,0,0,0};
+
+    RppBuf srcs[1] = { RppBuf{ src_data, src_step, width, height, depth, cn } };
+
+    // mean first (stddev needs it).
+    if (mean_val || stddev_val) {
+        int rc = runRppReduce(srcs, 1, meanArr, sizeof(Rpp32f) * arrLen,
+            [&](void** s, int, void* res, rppHandle_t h, RppBackend be) {
+                return rppt_tensor_mean(s[0], &srcDesc, res, (Rpp32u)arrLen, &roi, XYWH, h, be) == RPP_SUCCESS;
+            });
+        if (rc != CV_HAL_ERROR_OK) return rc;
+    }
+    if (stddev_val) {
+        // meanTensor for stddev must be batchSize*4 = [R,G,B,img]; for c==1 RPP
+        // still reads index 0. Build a 4-wide mean tensor.
+        Rpp32f meanTensor[4] = { meanArr[0], meanArr[1], meanArr[2], meanArr[3] };
+        int rc = runRppReduce(srcs, 1, stddevArr, sizeof(Rpp32f) * arrLen,
+            [&](void** s, int, void* res, rppHandle_t h, RppBackend be) {
+                return rppt_tensor_stddev(s[0], &srcDesc, res, (Rpp32u)arrLen, meanTensor,
+                                          &roi, XYWH, h, be) == RPP_SUCCESS;
+            });
+        if (rc != CV_HAL_ERROR_OK) return rc;
+    }
+
+    for (int i = 0; i < cn; ++i) {
+        if (mean_val)   mean_val[i]   = static_cast<double>(meanArr[i]);
+        if (stddev_val) stddev_val[i] = static_cast<double>(stddevArr[i]);
+    }
+    return CV_HAL_ERROR_OK;
 }
 
-extern "C" int rpp_hal_meanStdDev16u(const ushort* src_data, size_t src_step,
-                          int width, int height, double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep) {
-    (void)src_data; (void)src_step; (void)width; (void)height;
-    (void)meanVal; (void)stdDevVal; (void)mask; (void)maskStep;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
-}
+extern "C" int rpp_hal_sum(const uchar* src_data, size_t src_step, int src_type,
+                int width, int height, double* result) {
+    if (!result) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    const int depth = CV_MAT_DEPTH(src_type);
+    const int cn = CV_MAT_CN(src_type);
+    if (depth != CV_8U && depth != CV_32F) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (cn != 1 && cn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
 
-extern "C" int rpp_hal_meanStdDev32f(const float* src_data, size_t src_step,
-                          int width, int height, double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep) {
-    (void)src_data; (void)src_step; (void)width; (void)height;
-    (void)meanVal; (void)stdDevVal; (void)mask; (void)maskStep;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
-}
+    const int arrLen = (cn == 1) ? 1 : 4;
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, cn, depth);
+    RpptROI roi; buildFullRoi(roi, width, height);
 
-extern "C" int rpp_hal_meanStdDev64f(const double* src_data, size_t src_step,
-                          int width, int height, double* meanVal, double* stdDevVal,
-                          uchar* mask, size_t maskStep) {
-    (void)src_data; (void)src_step; (void)width; (void)height;
-    (void)meanVal; (void)stdDevVal; (void)mask; (void)maskStep;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    RppBuf srcs[1] = { RppBuf{ src_data, src_step, width, height, depth, cn } };
+
+    if (depth == CV_8U) {
+        Rpp64u sumArr[4] = {0,0,0,0};   // U8 sum accumulates into U64
+        int rc = runRppReduce(srcs, 1, sumArr, sizeof(Rpp64u) * arrLen,
+            [&](void** s, int, void* res, rppHandle_t h, RppBackend be) {
+                return rppt_tensor_sum(s[0], &srcDesc, res, (Rpp32u)arrLen, &roi, XYWH, h, be) == RPP_SUCCESS;
+            });
+        if (rc != CV_HAL_ERROR_OK) return rc;
+        for (int i = 0; i < cn; ++i) result[i] = static_cast<double>(sumArr[i]);
+    } else {
+        Rpp32f sumArr[4] = {0,0,0,0};
+        int rc = runRppReduce(srcs, 1, sumArr, sizeof(Rpp32f) * arrLen,
+            [&](void** s, int, void* res, rppHandle_t h, RppBackend be) {
+                return rppt_tensor_sum(s[0], &srcDesc, res, (Rpp32u)arrLen, &roi, XYWH, h, be) == RPP_SUCCESS;
+            });
+        if (rc != CV_HAL_ERROR_OK) return rc;
+        for (int i = 0; i < cn; ++i) result[i] = static_cast<double>(sumArr[i]);
+    }
+    return CV_HAL_ERROR_OK;
 }
 
 extern "C" int rpp_hal_integral8u(const uchar*, size_t,
@@ -503,9 +564,24 @@ extern "C" int rpp_hal_lut(const uchar* src_data, size_t src_step, size_t src_ty
         });
 }
 
-extern "C" int rpp_hal_magnitude32f(const float*, const float*,
-                         float*, int) {
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+extern "C" int rpp_hal_magnitude32f(const float* x_data, const float* y_data,
+                         float* dst_data, int len) {
+    // RPP magnitude: dst = sqrt(x^2 + y^2), elementwise. OpenCV passes flat 1D
+    // arrays of length len; model as a 1-row F32 image. GPU-only (HOST deviates).
+    if (len <= 0) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    const size_t rowBytes = static_cast<size_t>(len) * sizeof(float);
+    RpptDesc desc; buildRppDescNHWC(desc, len, 1, 1, CV_32F);
+    RpptROI roi; buildFullRoi(roi, len, 1);
+
+    RppBuf srcs[2] = { RppBuf{ x_data, rowBytes, len, 1, CV_32F, 1 },
+                       RppBuf{ y_data, rowBytes, len, 1, CV_32F, 1 } };
+    RppBuf dst = RppBuf{ dst_data, rowBytes, len, 1, CV_32F, 1 };
+    return runRpp(srcs, 2, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_magnitude(s[0], s[1], &desc, d, &desc, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
 
 extern "C" int rpp_hal_magnitude64f(const double*, const double*,
