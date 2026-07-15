@@ -29,6 +29,12 @@ xcuserdata/
 # Local RPP HAL test/benchmark binaries (built by hal/rpp/workflow/build.sh)
 /hal/rpp/workflow/test_rpp_hal
 /hal/rpp/workflow/test_rpp_correctness
+/hal/rpp/workflow/test_imgproc_correctness
+/hal/rpp/workflow/test_minimal
 /hal/rpp/workflow/benchmark_rpp
 /hal/rpp/workflow/benchmark_rpp_full
 /hal/rpp/workflow/benchmark_rpp_native
+/hal/rpp/workflow/bench_phase1
+/hal/rpp/workflow/bench_phase2
+/hal/rpp/workflow/bench_phase34
+/hal/rpp/workflow/bench_phase56

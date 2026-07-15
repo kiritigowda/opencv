@@ -41,6 +41,9 @@ These environment variables control dispatch at runtime (read in `../src`):
   Prints `[PASS]`/`[FAIL]` with max diff vs. tolerance.
 - **`test_rpp_hal.cpp`** — Smoke test that exercises each hooked op and reports timing;
   sanity-checks a few results.
+- **`test_imgproc_correctness.cpp`** — Imgproc-focused correctness comparison of RPP
+  output vs. OpenCV native reference.
+- **`test_minimal.cpp`** — Minimal single-op sanity check (bitwise on a small mat).
 
 ### Benchmarks
 - **`benchmark_rpp.cpp`** — Focused HAL-vs-native benchmark for resize, warpAffine,
@@ -50,12 +53,15 @@ These environment variables control dispatch at runtime (read in `../src`):
 - **`benchmark_rpp_native.cpp`** — Raw RPP benchmark with **no OpenCV integration**;
   calls `rppt_*` directly on HOST or HIP. Uploads/downloads once per case to match HAL
   behavior. Args: `[warmup] [iters]`. Force GPU with `OPENCV_RPP_FORCE_GPU=1`.
+- **`bench_phase1.cpp` / `bench_phase2.cpp` / `bench_phase34.cpp` / `bench_phase56.cpp`** —
+  Per-phase HAL-vs-native benchmarks for the ops added in each roadmap phase.
 
 ### Result snapshots
 - `benchmark_results_rpp_native_host_100iters.txt`
 - `benchmark_results_rpp_native_host_100iters_with_resize.txt`
+- `benchmark_results_cpu.txt` / `benchmark_results_hip.txt` / `benchmark_results_native.txt`
 
-  Captured native RPP HOST runs (100 iters) kept for reference/comparison.
+  Captured RPP HAL full-benchmark runs (CPU/HIP/native paths) kept for reference/comparison.
 
 ## Building and running
 
