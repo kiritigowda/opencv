@@ -236,11 +236,10 @@ int rpp_hal_cvtGraytoBGR8u(const uchar* src_data, size_t src_step,
                            uchar* dst_data, size_t dst_step,
                            int width, int height, int cn);
 
-// LUT
-int rpp_hal_lut(const uchar* src_data, size_t src_step,
-                int width, int height, int cn,
-                const uchar* lut_data, int lut_cn,
-                uchar* dst_data, size_t dst_step);
+// LUT (matches cv_hal_lut signature)
+int rpp_hal_lut(const uchar* src_data, size_t src_step, size_t src_type,
+                const uchar* lut_data, size_t lut_channel_size, size_t lut_channels,
+                uchar* dst_data, size_t dst_step, int width, int height);
 
 // Magnitude
 int rpp_hal_magnitude32f(const float* x_data, const float* y_data,
@@ -379,6 +378,9 @@ int rpp_hal_magnitude64f(const double* x_data, const double* y_data,
 #define cv_hal_cvtBGRtoGray32f rpp_hal_cvtBGRtoGray32f
 #undef cv_hal_cvtGraytoBGR8u
 #define cv_hal_cvtGraytoBGR8u rpp_hal_cvtGraytoBGR8u
+
+#undef cv_hal_lut
+#define cv_hal_lut rpp_hal_lut
 
 #undef cv_hal_magnitude32f
 #define cv_hal_magnitude32f rpp_hal_magnitude32f

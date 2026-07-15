@@ -12,6 +12,8 @@
 #include <rpp/rppt_tensor_geometric_augmentations.h>
 #include <rpp/rppt_tensor_filter_augmentations.h>
 #include <rpp/rppt_tensor_morphological_operations.h>
+#include <rpp/rppt_tensor_data_exchange_operations.h>
+#include <rpp/rppt_tensor_color_augmentations.h>
 #include <opencv2/imgproc/hal/interface.h>
 
 using namespace cv::hal::rpp;
@@ -366,9 +368,24 @@ extern "C" int rpp_hal_cvtBGRtoBGR(const uchar* src_data, size_t src_step,
                                    uchar* dst_data, size_t dst_step,
                                    int width, int height, int depth,
                                    int scn, int dcn, bool swapBlue) {
-    (void)src_data; (void)src_step; (void)dst_data; (void)dst_step;
-    (void)width; (void)height; (void)depth; (void)scn; (void)dcn; (void)swapBlue;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    // RPP channel_permute is 3-channel only. Map the BGR<->RGB swap
+    // (scn == dcn == 3, swapBlue) to a {2,1,0} permutation. Alpha add/drop
+    // (scn!=dcn) and no-op copies fall back to native. GPU-only.
+    if (!swapBlue) return CV_HAL_ERROR_NOT_IMPLEMENTED;   // plain copy: let native handle
+    if (scn != 3 || dcn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (!supportedDepth(depth)) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, 3, depth);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, width, height, 3, depth);
+    static thread_local Rpp32u perm[3] = { 2, 1, 0 };
+
+    RppBuf srcs[1] = { makeBuf(src_data, src_step, width, height, depth, 3) };
+    RppBuf dst = makeBuf(dst_data, dst_step, width, height, depth, 3);
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_channel_permute(s[0], &srcDesc, d, &dstDesc, perm, h, be) == RPP_SUCCESS;
+        });
 }
 
 extern "C" int rpp_hal_cvtBGRtoGray(const uchar* src_data, size_t src_step,
@@ -547,5 +564,28 @@ extern "C" int rpp_hal_remap32f(int src_type,
             if (d_col) (void)hipFree(d_col);
 #endif
             return ok;
+        });
+}
+
+// =========================================================================
+// HISTOGRAM EQUALIZATION — rppt_histogram_equalize (U8), single-channel.
+// OpenCV cv_hal_equalize_hist is invoked for 8UC1 only.
+// =========================================================================
+
+extern "C" int rpp_hal_equalize_hist(const uchar* src_data, size_t src_step,
+                                     uchar* dst_data, size_t dst_step,
+                                     int width, int height) {
+    // GPU only (RPP HOST color path deviates, matching resize/warp/threshold).
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, 1, CV_8U);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, width, height, 1, CV_8U);
+    RpptROI roi; buildFullRoi(roi, width, height);
+
+    RppBuf srcs[1] = { makeBuf(src_data, src_step, width, height, CV_8U, 1) };
+    RppBuf dst = makeBuf(dst_data, dst_step, width, height, CV_8U, 1);
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_histogram_equalize(s[0], &srcDesc, d, &dstDesc, &roi, XYWH, h, be) == RPP_SUCCESS;
         });
 }

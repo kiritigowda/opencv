@@ -87,6 +87,11 @@ int rpp_hal_remap32f(int src_type,
                      int interpolation, int border_type,
                      const double border_value[4]);
 
+// Histogram equalization (8UC1)
+int rpp_hal_equalize_hist(const uchar* src_data, size_t src_step,
+                          uchar* dst_data, size_t dst_step,
+                          int width, int height);
+
 int rpp_hal_resize(int src_type,
                    const uchar* src_data, size_t src_step,
                    int src_width, int src_height,
@@ -181,6 +186,9 @@ int rpp_hal_cvtHSVtoBGR(const uchar* src_data, size_t src_step,
 
 #undef cv_hal_morph_stateless
 #define cv_hal_morph_stateless rpp_hal_morph_stateless
+
+#undef cv_hal_equalize_hist
+#define cv_hal_equalize_hist rpp_hal_equalize_hist
 
 #undef cv_hal_flip
 #define cv_hal_flip rpp_hal_flip

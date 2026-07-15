@@ -30,6 +30,21 @@ RPP kernel today:
 | dilate (full box kernel 3/5/7/9, REPLICATE, cn 1/3) | GPU + CPU | Phase 2 — correctness exact (tol 0) |
 | inRange (single-channel 8u/32f) | **GPU only** | Phase 2 — via rppt_threshold; RPP HOST deviates so GPU-guarded |
 | remap (32f maps, NEAREST/BILINEAR, REPLICATE) | **GPU only** | Phase 2 — correctness verified |
+| lut (8U, single 256-table, cn 1/3) | **GPU only** | Phase 3 — via rppt_lut, exact |
+| equalizeHist (8UC1) | **GPU only** | Phase 3 — via rppt_histogram_equalize |
+| cvtColor BGR<->RGB swap (8/16/32, cn 3) | **GPU only** | Phase 3 — via rppt_channel_permute, exact |
+| addWeighted (32f, beta=1-alpha, gamma=0) | **GPU only** | Phase 4 — via rppt_blend |
+
+### Phase 3/4 benchmark (RX 7900 XT, RPP GPU vs native AVX)
+| op | HD native | HD RPP | 4K native | 4K RPP | verdict |
+|----|-----------|--------|-----------|--------|---------|
+| lut 3c | 0.174 | 0.188 | 0.549 | 0.544 | **tie** |
+| equalizeHist 1c | 0.277 | 0.283 | 0.499 | 0.501 | **tie** |
+| cvtColor BGR2RGB | 0.119 | 0.128 | 0.559 | 0.552 | **tie** |
+| addWeighted 32f | 0.212 | 0.226 | 2.207 | 2.232 | **tie** |
+
+ms/op. Same pattern — all tie native (±~5%), none lose, all stay enabled. Copy-bound;
+op-chaining remains the only path to a real single-machine GPU win.
 
 ### Phase 2 benchmark (RX 7900 XT, RPP GPU vs native AVX)
 | op | HD native | HD RPP | 4K native | 4K RPP | verdict |
@@ -63,8 +78,8 @@ cvtColor*) is a **stub returning `CV_HAL_ERROR_NOT_IMPLEMENTED`**.
 
 **Baseline real working set was 8 ops** (bitwise x4, resize, warpAffine, flip, boxFilter).
 Phase 1 added 4 (gaussianBlur, medianBlur, sobel, warpPerspective) → 12. Phase 2 added 4
-(erode, dilate, inRange, remap) → **16 working**. This roadmap turns the remaining mappable
-ops into real implementations.
+(erode, dilate, inRange, remap) → 16. Phase 3/4 added 4 (lut, equalizeHist, cvtColor
+BGR<->RGB swap, addWeighted-as-blend) → **20 working**.
 
 ### Why it isn't fast yet
 Every current call does: `hipMalloc → hipMemcpy H2D (row loop) → rppCreate handle →

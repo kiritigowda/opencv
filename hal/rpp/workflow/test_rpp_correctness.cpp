@@ -224,6 +224,63 @@ int main() {
         test("remap 8UC3 bilinear", rppOut, nativeOut, CV_8U, 3);
     }
 
+    // LUT 8UC1 (invert table)
+    {
+        Mat lut(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; ++i) lut.at<uchar>(i) = (uchar)(255 - i);
+        Mat rppOut, nativeOut;
+        LUT(gray8u, lut, rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        LUT(gray8u, lut, nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("lut 8UC1 invert", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // LUT 8UC3 (single table applied to all channels)
+    {
+        Mat lut(1, 256, CV_8UC1);
+        for (int i = 0; i < 256; ++i) lut.at<uchar>(i) = (uchar)(255 - i);
+        Mat rppOut, nativeOut;
+        LUT(color8u, lut, rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        LUT(color8u, lut, nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("lut 8UC3 invert", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // equalizeHist 8UC1
+    {
+        Mat rppOut, nativeOut;
+        equalizeHist(gray8u, rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        equalizeHist(gray8u, nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("equalizeHist 8UC1", rppOut, nativeOut, CV_8U, 2);
+    }
+
+    // cvtColor BGR<->RGB channel swap (8UC3)
+    {
+        Mat rppOut, nativeOut;
+        cvtColor(color8u, rppOut, COLOR_BGR2RGB);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        cvtColor(color8u, nativeOut, COLOR_BGR2RGB);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("cvtColor BGR2RGB 8UC3", rppOut, nativeOut, CV_8U, 0);
+    }
+
+    // addWeighted 32f (beta = 1-alpha, gamma = 0 -> maps to RPP blend)
+    {
+        Mat a32(H, W, CV_32FC1), b32(H, W, CV_32FC1);
+        rng.fill(a32, RNG::UNIFORM, 0.f, 1.f);
+        rng.fill(b32, RNG::UNIFORM, 0.f, 1.f);
+        Mat rppOut, nativeOut;
+        addWeighted(a32, 0.3, b32, 0.7, 0.0, rppOut);
+        setenv("OPENCV_RPP_DISABLE", "1", 1);
+        addWeighted(a32, 0.3, b32, 0.7, 0.0, nativeOut);
+        unsetenv("OPENCV_RPP_DISABLE");
+        test("addWeighted 32f blend", rppOut, nativeOut, CV_32F, 1e-3);
+    }
+
     cout << "=== Done ===" << endl;
     return 0;
 }

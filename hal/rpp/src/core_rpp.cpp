@@ -11,6 +11,8 @@
 #include "rpp_precomp.hpp"
 #include <rpp/rppt_tensor_bitwise_operations.h>
 #include <rpp/rppt_tensor_statistical_operations.h>
+#include <rpp/rppt_tensor_color_augmentations.h>
+#include <cmath>
 
 using namespace cv::hal::rpp;
 
@@ -236,9 +238,27 @@ extern "C" int rpp_hal_addWeighted32f(const float* src1_data, size_t src1_step,
                              float* dst_data, size_t dst_step,
                              int width, int height,
                              const double scalars[3]) {
-    (void)src1_data; (void)src1_step; (void)src2_data; (void)src2_step;
-    (void)dst_data; (void)dst_step; (void)width; (void)height; (void)scalars;
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    // RPP blend computes alpha*src1 + (1-alpha)*src2. OpenCV addWeighted is
+    // alpha*src1 + beta*src2 + gamma, so it only matches when beta == 1-alpha
+    // and gamma == 0. GPU-only (RPP HOST color ops deviate like resize/warp).
+    const double alpha = scalars[0], beta = scalars[1], gamma = scalars[2];
+    if (std::fabs(beta - (1.0 - alpha)) > 1e-6) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (std::fabs(gamma) > 1e-6) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    // width is already pre-multiplied by channels by the caller (continuous
+    // arithmetic path), so treat as a single-channel F32 buffer.
+    RpptDesc desc; buildRppDescNHWC(desc, width, height, 1, CV_32F);
+    RpptROI roi; buildFullRoi(roi, width, height);
+    Rpp32f alphaT = static_cast<Rpp32f>(alpha);
+
+    RppBuf srcs[2] = { RppBuf{ src1_data, src1_step, width, height, CV_32F, 1 },
+                       RppBuf{ src2_data, src2_step, width, height, CV_32F, 1 } };
+    RppBuf dst = RppBuf{ dst_data, dst_step, width, height, CV_32F, 1 };
+    return runRpp(srcs, 2, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            return rppt_blend(s[0], s[1], &desc, d, &desc, &alphaT, &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
 
 extern "C" int rpp_hal_cvt8u16s(const uchar*, size_t,
@@ -455,11 +475,32 @@ extern "C" int rpp_hal_cvtGraytoBGR8u(const uchar*, size_t,
     return CV_HAL_ERROR_NOT_IMPLEMENTED;
 }
 
-extern "C" int rpp_hal_lut(const uchar*, size_t,
-                int, int, int,
-                const uchar*, int,
-                uchar*, size_t) {
-    return CV_HAL_ERROR_NOT_IMPLEMENTED;
+extern "C" int rpp_hal_lut(const uchar* src_data, size_t src_step, size_t src_type,
+                const uchar* lut_data, size_t lut_channel_size, size_t lut_channels,
+                uchar* dst_data, size_t dst_step, int width, int height) {
+    // RPP lut applies a single 8U table to all channels. Match only the 8U,
+    // single-table (lut_channels == 1), 8-bit-entry case; per-channel LUTs or
+    // wider element types fall back to native. GPU-only (RPP HOST deviates).
+    const int depth = CV_MAT_DEPTH(static_cast<int>(src_type));
+    const int cn = CV_MAT_CN(static_cast<int>(src_type));
+    if (depth != CV_8U) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (lut_channels != 1) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (lut_channel_size != 1) return CV_HAL_ERROR_NOT_IMPLEMENTED;  // 8-bit entries
+    if (cn != 1 && cn != 3) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+    if (selectRppPath() != RPP_GPU) return CV_HAL_ERROR_NOT_IMPLEMENTED;
+
+    RpptDesc srcDesc; buildRppDescNHWC(srcDesc, width, height, cn, CV_8U);
+    RpptDesc dstDesc; buildRppDescNHWC(dstDesc, width, height, cn, CV_8U);
+    RpptROI roi; buildFullRoi(roi, width, height);
+
+    RppBuf srcs[1] = { RppBuf{ src_data, src_step, width, height, CV_8U, cn } };
+    RppBuf dst = RppBuf{ dst_data, dst_step, width, height, CV_8U, cn };
+    return runRpp(srcs, 1, dst,
+        [&](void** s, int, void* d, rppHandle_t h, RppBackend be) {
+            // lutPtr lives in HOST/pinned memory for both backends.
+            return rppt_lut(s[0], &srcDesc, d, &dstDesc,
+                            const_cast<uchar*>(lut_data), &roi, XYWH, h, be) == RPP_SUCCESS;
+        });
 }
 
 extern "C" int rpp_hal_magnitude32f(const float*, const float*,
